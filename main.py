@@ -8,25 +8,27 @@ app = FastAPI()
 
 
 def extract_tables_from_nessus(text_content):
-    # Extract Summary table data
-    summary_pattern = r"Critical\s+High\s+Medium\s+Low\s+Info\s+Total\n(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
-    summary_match = re.search(summary_pattern, text_content)
+    # Precompile regex patterns
+    summary_pattern = re.compile(
+        r"Critical\s+High\s+Medium\s+Low\s+Info\s+Total\n(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
+    )
+    details_pattern = re.compile(
+        r"(Critical|High|Medium|Low)\s+\((\d+\.?\d*)\)\s+(\d+)\s+([^\n]+)"
+    )
 
+    # Extract Summary table data
+    summary_match = summary_pattern.search(text_content)
     if summary_match:
-        summary_data = {
+        summary_df = pd.DataFrame({
             'Category': ['Critical', 'High', 'Medium', 'Low', 'Info', 'Total'],
             'Count': list(map(int, summary_match.groups()))
-        }
-        summary_df = pd.DataFrame(summary_data)
+        })
     else:
         summary_df = pd.DataFrame()
 
     # Extract Details table data
-    details_pattern = r"(Critical|High|Medium|Low)\s+\((\d+\.?\d*)\)\s+(\d+)\s+([^\n]+)"
-    details_matches = re.finditer(details_pattern, text_content)
-
     details_data = []
-    for match in details_matches:
+    for match in details_pattern.finditer(text_content):
         details_data.append({
             'Severity': match.group(1),
             'Risk Score': float(match.group(2)),
@@ -41,23 +43,31 @@ def extract_tables_from_nessus(text_content):
 
 @app.post("/api/process-pdf")
 async def process_pdf(file: UploadFile):
-    # Check if file is a PDF
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="File must be a PDF")
 
     try:
-        # Read the PDF file content
         with pdfplumber.open(file.file) as pdf:
-            text_content = "\n".join([page.extract_text() for page in pdf.pages])
+            # Process each page individually
+            summary_data, details_data = [], []
+            for page in pdf.pages:
+                text_content = page.extract_text()
+                if text_content:
+                    page_summary_df, page_details_df = extract_tables_from_nessus(text_content)
+                    if not page_summary_df.empty:
+                        summary_data.append(page_summary_df)
+                    if not page_details_df.empty:
+                        details_data.append(page_details_df)
 
-        # Process the text content
-        summary_df, details_df = extract_tables_from_nessus(text_content)
+        # Combine all page data
+        summary_df = pd.concat(summary_data, ignore_index=True).groupby('Category',
+                                                                        as_index=False).sum() if summary_data else pd.DataFrame()
+        details_df = pd.concat(details_data, ignore_index=True) if details_data else pd.DataFrame()
 
         # Convert DataFrames to JSON serializable format
         summary_json = summary_df.to_dict(orient="records")
         details_json = details_df.to_dict(orient="records")
 
-        # Return the response
         return JSONResponse(content={
             "summary": summary_json,
             "details": details_json
