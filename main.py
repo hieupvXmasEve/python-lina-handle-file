@@ -1,12 +1,9 @@
 import io
 import re
-from typing import List
-
 import pandas as pd
 import pdfplumber
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 from PyPDF2 import PdfReader
 
 app = FastAPI(
@@ -101,23 +98,77 @@ async def process_pdf(file: UploadFile):
         )
 
 
-# @app.post("/api/process-pdf")
-#
-class VulnerabilityIssue(BaseModel):
-    ID: str
-    Severity: str
-    Type: str
-    Location: str
-    Details: str
-    Status: str
+# List of keys to extract
+keys = [
+    "Fix Group ID",
+    "Status",
+    "Date",
+    "API",
+    "Notes",
+    "How to Fix",
+    "Issue ID",
+    "Severity",
+    "Classification",
+    "Location",
+    "Line",
+    "Source File",
+    "Availability Impact",
+    "Confidentiality Impact",
+    "Integrity Impact",
+    "Date Created",
+    "Last Updated",
+    "CWE",
+    "Caller",
+    "URL",
+    "Sink",
+    # Add any other keys found in the text
+]
 
 
-class ScanResponse(BaseModel):
-    total_issues: int
-    issues: List[VulnerabilityIssue]
+def extract_issues(text, key):
+
+    # issue_blocks = re.findall(r"Issue ID:.*?(?=(Issue ID:|\Z))", text, re.DOTALL)
+    issue_blocks = re.findall(r"Issue ID:.*?(?=(?:Issue ID:|\Z))", text, re.DOTALL)
+
+    issues = []
+    for block in issue_blocks:
+        lines = block.split("\n")
+        issue = {}
+        current_key = None
+        current_value = ""
+
+        for line in lines:
+            line = line.strip()
+            if line == "":
+                continue
+
+            # Check if the line starts with any of the keys
+            match = None
+            for key in keys:
+                if line.startswith(key):
+                    match = key
+                    break
+
+            if match:
+                # If there is a current key, save the previous key-value pair
+                if current_key:
+                    issue[current_key] = current_value.strip()
+                # Set the new key and start a new value
+                current_key = match
+                current_value = line[len(match) :].strip()
+            else:
+                # Append the line to the current value
+                current_value += " " + line
+
+        # Add the last key-value pair
+        if current_key:
+            issue[current_key] = current_value.strip()
+        issues.append(issue)
+
+    return issues
 
 
-@app.post("/api/process-pdf-scan", response_model=ScanResponse)
+@app.post("/api/process-pdf-scan")
 async def scan_pdf(file: UploadFile = File(...)):
     """
     Scan a PDF file for vulnerability issues
@@ -143,32 +194,14 @@ async def scan_pdf(file: UploadFile = File(...)):
         for page in reader.pages:
             pdf_text += page.extract_text()
 
-        # Regular expression pattern for matching issues
-        issue_pattern = re.compile(
-            r"Issue ID:\s+([a-zA-Z0-9\-]+).*?"
-            r"Severity:\s+(High|Medium|Low).*?"
-            r"Status:\s*(Open|Closed).*?"
-            r"Location\s+(.+?):(\d+).*?"
-            r"CWE:\s+(\d+).*?"
-            r"Notes:\s+(.*?)How to Fix",
-            re.DOTALL,
+        extracted_issues = extract_issues(pdf_text, keys)
+
+        # response_data = ScanResponse(
+        #     total_issues=len(extracted_issues), issues=extracted_issues
+        # )
+        return JSONResponse(
+            content={"total_issues": len(extracted_issues), "issues": extracted_issues}
         )
 
-        # Extract issues
-        issues = []
-        for match in issue_pattern.finditer(pdf_text):
-            issues.append(
-                VulnerabilityIssue(
-                    ID=match.group(1),
-                    Severity=match.group(2),
-                    Type="Extracted Type Placeholder",
-                    Status=match.group(3),
-                    Location=f"{match.group(4)}:{match.group(5)}",
-                    Details=f"CWE: {match.group(6)} - {match.group(7).strip()}",
-                )
-            )
-
-        return ScanResponse(total_issues=len(issues), issues=issues)
-
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
