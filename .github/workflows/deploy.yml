@@ -20,5 +20,5 @@ jobs:
         username: ${{ secrets.EC2_USER }}
         key: ${{ secrets.EC2_SSH_KEY }}
         script: |
-          cd /home/ubuntu/fastapi-process-pdf  # Đường dẫn đến thư mục chứa mã nguồn
+          cd
           bash deploy.sh  # Chạy script deploy.sh
