@@ -206,10 +206,3 @@ async def scan_pdf(file: UploadFile = File(...)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@app.route("/deploy", methods=["POST"])
-def deploy():
-    # Gọi script deploy.sh khi nhận được webhook từ GitHub
-    subprocess.call(["./deploy.sh"])
-    return JSONResponse(content={"status": "Deployment started!"})
