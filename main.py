@@ -127,10 +127,8 @@ keys = [
 
 
 def extract_issues(text, key):
-
     # issue_blocks = re.findall(r"Issue ID:.*?(?=(Issue ID:|\Z))", text, re.DOTALL)
     issue_blocks = re.findall(r"Issue ID:.*?(?=(?:Issue ID:|\Z))", text, re.DOTALL)
-
     issues = []
     for block in issue_blocks:
         lines = block.split("\n")
@@ -204,5 +202,27 @@ async def scan_pdf(file: UploadFile = File(...)):
             content={"total_issues": len(extracted_issues), "issues": extracted_issues}
         )
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+# Handle text file upload
+@app.post("/api/process-text-file")
+async def process_text_file(file: UploadFile = File(...)):
+    try:
+        # Validate file type
+        if not file.filename.endswith(".txt"):
+            raise HTTPException(status_code=400, detail="File must be a text file")
+
+        # Read file contents and decode to string
+        contents = await file.read()
+        text_content = contents.decode('utf-8')  # Decode bytes to string
+        extracted_issues = extract_issues(text_content, keys)
+
+        return JSONResponse(
+            content={
+                "total_issues": len(extracted_issues),
+                "issues": extracted_issues,
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
