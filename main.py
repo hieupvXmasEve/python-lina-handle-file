@@ -6,11 +6,21 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from PyPDF2 import PdfReader
 import subprocess
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
     title="PDF Vulnerability Scanner API",
     description="API for scanning and extracting vulnerability information from PDF reports",
     version="1.0.0",
+)
+
+# Add CORS middleware configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
 )
 
 
